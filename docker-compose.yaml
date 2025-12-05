@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Metrics endpoint
+      - "8889:8889"   # Prometheus exporter
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # Prometheus for metrics storage
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "3002:9090"
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Jaeger collector
+      - "4317"         # OTLP gRPC (internal)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # Langfuse v2 for LLM-specific observability (without ClickHouse)
+  #langfuse:
+  #  image: langfuse/langfuse:2
+  #  container_name: langfuse
+  #  depends_on:
+  #    langfuse-db:
+  #      condition: service_healthy
+  #  ports:
+  #    - "3000:3000"
+  #  environment:
+  #    - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+  #    - NEXTAUTH_SECRET=changeme-generate-random-string-here
+  #    - SALT=changeme-generate-random-string-here
+  #    - NEXTAUTH_URL=http://localhost:3000
+  #    - TELEMETRY_ENABLED=true
+  #  networks:
+  #    - observability
+  # restart: unless-stopped
+
+  # PostgreSQL for Langfuse
+  #langfuse-db:
+  #  image: postgres:15-alpine
+  #  container_name: langfuse-db
+  #  environment:
+  #    - POSTGRES_USER=langfuse
+  #    - POSTGRES_PASSWORD=langfuse
+  #    - POSTGRES_DB=langfuse
+  #  volumes:
+  #    - langfuse-db-data:/var/lib/postgresql/data
+  #  networks:
+  #    - observability
+  #  restart: unless-stopped
+  #  healthcheck:
+  #    test: ["CMD-SHELL", "pg_isready -U langfuse"]
+  #    interval: 10s
+  #    timeout: 5s
+  #    retries: 5
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  #langfuse-db-data:
+
+networks:
+  observability:
+    driver: bridge
